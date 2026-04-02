@@ -1,7 +1,7 @@
 import os
 import json
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Any, Dict
 
 from langchain.agents import AgentExecutor, create_react_agent
 from langchain_core.prompts import PromptTemplate

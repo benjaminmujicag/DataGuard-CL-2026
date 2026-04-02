@@ -1,4 +1,7 @@
 import os
+
+import pytest
+
 from src.agent.tools import read_schema, categorize_column, get_legal_context
 
 def test_read_schema():
@@ -43,8 +46,9 @@ def test_categorize_column():
     
     print("✅ Categorize Column Tool passed.")
 
+@pytest.mark.integration
 def test_legal_context():
-    """Test connection to RAG from tools."""
+    """Test connection to RAG from tools (requires Ollama + ChromaDB)."""
     print("\n--- Test: Get Legal Context (RAG) ---")
     query = "¿Qué es un dato biométrico?"
     result = get_legal_context.invoke({"query": query})
