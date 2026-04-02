@@ -14,3 +14,6 @@ python-dotenv==1.0.1
 
 # UI
 streamlit==1.38.0
+
+# Orquestación Avanzada (Fase 3)
+langgraph>=0.2.14

@@ -12,12 +12,12 @@ __pycache__/
 .pytest_cache/
 
 # Datos sensibles y Leyes (Blindaje total)
-data/leyes_base/        # Ignora la carpeta completa de las leyes reales
-data/**/*.pdf           # Ignora cualquier PDF en subcarpetas de data
+data/leyes_base/
+data/**/*.pdf
 data/*.csv
 data/*.json
 *.sql
-!data/sample_schema.sql  # Mantenemos SOLO el ejemplo seguro para la demo
+!data/sample_schema.sql
 
 # Documentación (Privacidad Extrema)
 *.md
