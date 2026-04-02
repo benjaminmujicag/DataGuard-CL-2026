@@ -1,0 +1,27 @@
+# Entorno
+venv/
+.env
+
+# ChromaDB (generado localmente)
+chroma_db/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Datos sensibles y Leyes
+data/*.pdf
+data/*.csv
+data/*.json
+*.sql
+!data/sample_schema.sql  # Mantenemos el ejemplo para que el código funcione al clonar
+
+# Documentación (Privacidad Extrema)
+*.md
+!README.md              # Solo permitimos el README público
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,16 @@
+# Core LangChain
+langchain>=0.3.25
+langchain-core>=0.3.63
+langchain-community>=0.3.24
+langchain-text-splitters>=0.3.8
+
+# Integraciones específicas
+langchain-ollama==0.2.0
+langchain-chroma==0.1.4
+
+# PDF y utilidades
+pypdf==4.3.1
+python-dotenv==1.0.1
+
+# UI
+streamlit==1.38.0

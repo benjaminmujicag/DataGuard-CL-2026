@@ -1,0 +1,1 @@
+"""Paquete raíz src."""
