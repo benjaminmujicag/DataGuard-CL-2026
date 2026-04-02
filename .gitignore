@@ -11,12 +11,13 @@ __pycache__/
 *.pyo
 .pytest_cache/
 
-# Datos sensibles y Leyes
-data/*.pdf
+# Datos sensibles y Leyes (Blindaje total)
+data/leyes_base/        # Ignora la carpeta completa de las leyes reales
+data/**/*.pdf           # Ignora cualquier PDF en subcarpetas de data
 data/*.csv
 data/*.json
 *.sql
-!data/sample_schema.sql  # Mantenemos el ejemplo para que el código funcione al clonar
+!data/sample_schema.sql  # Mantenemos SOLO el ejemplo seguro para la demo
 
 # Documentación (Privacidad Extrema)
 *.md
