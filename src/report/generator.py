@@ -1,4 +1,9 @@
-"""Generate structured JSON and PDF reports from audit payloads."""
+"""Generate structured JSON and PDF reports from audit payloads.
+
+# Review: opus-4.6 · 2026-04-03
+# Code is clean: proper UTF-8 handling, Unicode font fallback, ReportLab usage correct.
+# Minor note: PDF table truncates mitigacion to 200 chars (acceptable for layout). Approved.
+"""
 
 from __future__ import annotations
 

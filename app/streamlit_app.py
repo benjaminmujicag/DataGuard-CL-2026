@@ -1,15 +1,17 @@
+"""CL-DataGuard 2026 — Streamlit UI for SQL schema auditing.
+
+# Review: opus-4.6 · 2026-04-03
+# Cleaned: removed sys.path hack, added error handling for query_legal. Approved.
+"""
+
 import json
 import os
-import sys
 import tempfile
 from datetime import datetime
 
 import streamlit as st
 import streamlit.components.v1 as components
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
-from src.agent.agent import run_audit
 from src.graph.workflow import (
     GRAPH_NODE_ORDER,
     MERMAID_AUDIT_FLOW,
@@ -37,14 +39,13 @@ st.markdown(
 )
 
 st.title("🛡️ CL-DataGuard 2026")
-st.caption("Consultor legal local (RAG) y auditoría de metadatos SQL — Ley 19.628 / 21.719")
+st.caption("Auditoría de metadatos SQL (grafo determinista) — Ley 19.628 / 21.719")
 st.markdown("---")
 
-tab_chat, tab_audit, tab_graph = st.tabs(
+tab_graph, tab_chat = st.tabs(
     [
+        "📊 Auditoría SQL (Grafo de Nodos)",
         "💬 Consultor Legal (RAG)",
-        "🔍 Auditoría de Esquema (Agente)",
-        "📊 Auditoría LangGraph",
     ]
 )
 
@@ -143,14 +144,68 @@ def _render_audit_tables(reporte: dict) -> None:
         st.info("No se detectaron columnas o hallazgos en este esquema.")
 
 
-# --- Pestaña 1: chat ---
+# Pestaña 1 — Flujo principal: grafo determinista de nodos (F4)
+with tab_graph:
+    st.subheader("Auditoría de Esquema SQL — Grafo de Nodos")
+    st.info(
+        "Sube un archivo `.sql` con `CREATE TABLE`. El sistema ejecuta un flujo de **nodos "
+        "fijos y deterministas**: leer DDL → clasificar por reglas → consultar ley (RAG) → "
+        "asignar mitigaciones → generar reporte. Sin agente libre: el orden está fijado en código."
+    )
+
+    with st.expander("Diagrama del flujo (Mermaid)"):
+        st.caption("Requiere conexión al CDN de Mermaid en el navegador.")
+        _mermaid_chart(MERMAID_AUDIT_FLOW, height=340)
+        st.markdown("**Código fuente del diagrama**")
+        st.code(MERMAID_AUDIT_FLOW.strip(), language="text")
+
+    up_g = st.file_uploader("Cargar esquema SQL (.sql)", type=["sql"], key="upload_graph")
+
+    if up_g is not None and st.button("Ejecutar auditoría (grafo de nodos)", key="btn_graph"):
+        tmp_sql: str | None = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".sql", mode="wb") as tf:
+                tf.write(up_g.getvalue())
+                tmp_sql = tf.name
+
+            progress = st.progress(0, text="Iniciando nodos…")
+            reporte: dict = {}
+            n_steps = len(GRAPH_NODE_ORDER)
+
+            with st.status("Ejecutando grafo de nodos…", expanded=True) as status_box:
+                for i, (node_id, label, delta) in enumerate(iter_graph_audit_steps(tmp_sql)):
+                    status_box.write(f"✅ **Nodo {i + 1}/{n_steps}:** {node_id} — {label}")
+                    progress.progress(
+                        min((i + 1) / n_steps, 1.0),
+                        text=f"Nodo {i + 1}/{n_steps}: {node_id}",
+                    )
+                    if isinstance(delta, dict) and "report" in delta:
+                        reporte = delta["report"]
+
+            progress.progress(1.0, text="Todos los nodos completados")
+
+            errs = (reporte.get("resumen") or {}).get("errores")
+            if errs:
+                st.error("Errores durante la ejecución: " + "; ".join(str(x) for x in errs))
+            else:
+                st.success("Auditoría completada — reporte generado por el grafo de nodos")
+
+            _render_audit_tables(reporte)
+        except Exception as e:
+            st.error(f"Error: {e}")
+        finally:
+            if tmp_sql and os.path.exists(tmp_sql):
+                os.remove(tmp_sql)
+
+# Pestaña 2 — Consultor legal RAG (opcional / desarrollo)
 with tab_chat:
-    st.subheader("Asistente jurídico")
+    st.subheader("Consultor jurídico (RAG)")
+    st.caption("Consultas sobre protección de datos en Chile ancladas al corpus legal ingerido.")
 
     with st.expander("Instrucciones"):
         st.write(
-            "Consultas sobre protección de datos en Chile. Las respuestas se apoyan en el corpus "
-            "legal ingerido (RAG)."
+            "Escribe tu consulta sobre la Ley 21.719 o 19.628. Las respuestas se apoyan "
+            "en los fragmentos del corpus legal ingerido en ChromaDB (RAG)."
         )
 
     if "messages" not in st.session_state:
@@ -174,88 +229,9 @@ with tab_chat:
 
         with st.chat_message("assistant"):
             with st.spinner("Buscando en la base legal…"):
-                respuesta = query_legal(prompt)
+                try:
+                    respuesta = query_legal(prompt)
+                except Exception as e:
+                    respuesta = f"Error al consultar la base legal: {e}"
                 st.markdown(respuesta)
                 st.session_state.messages.append({"role": "assistant", "content": respuesta})
-
-# pestaña 2
-with tab_audit:
-    st.subheader("Auditoría con agente (ReAct)")
-    st.info("Sube un `.sql` con `CREATE TABLE`. Usa LLM + herramientas.")
-
-    uploaded_file = st.file_uploader(
-        "Esquema SQL (modo agente)", type=["sql"], key="upload_agent"
-    )
-
-    if uploaded_file is not None and st.button("Iniciar auditoría (agente)", key="btn_agent"):
-        tmp_path: str | None = None
-        try:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".sql", mode="wb") as tmp_file:
-                tmp_file.write(uploaded_file.getvalue())
-                tmp_path = tmp_file.name
-
-            with st.spinner("Agente analizando esquema y ley…"):
-                reporte = run_audit(tmp_path)
-
-            if "error" in reporte:
-                st.error(str(reporte["error"]))
-            else:
-                st.success("Auditoría finalizada (agente)")
-                _render_audit_tables(reporte)
-        except Exception as e:
-            st.error(f"Error: {e}")
-        finally:
-            if tmp_path and os.path.exists(tmp_path):
-                os.remove(tmp_path)
-
-# Pestaña 3 — F3.4 completo: progreso por nodo + Mermaid + descargas
-with tab_graph:
-    st.subheader("Auditoría con LangGraph")
-    st.info(
-        "Flujo fijado: analizar esquema → clasificar → RAG → mitigación → reporte. "
-        "Debajo verás el avance por nodo y el diagrama del grafo."
-    )
-
-    with st.expander("Diagrama del flujo (Mermaid)"):
-        st.caption("Requiere conexión al CDN de Mermaid en el navegador.")
-        _mermaid_chart(MERMAID_AUDIT_FLOW, height=340)
-        st.markdown("**Código fuente del diagrama**")
-        st.code(MERMAID_AUDIT_FLOW.strip(), language="text")
-
-    up_g = st.file_uploader("Esquema SQL (LangGraph)", type=["sql"], key="upload_graph")
-
-    if up_g is not None and st.button("Ejecutar flujo LangGraph", key="btn_graph"):
-        tmp_sql: str | None = None
-        try:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".sql", mode="wb") as tf:
-                tf.write(up_g.getvalue())
-                tmp_sql = tf.name
-
-            progress = st.progress(0, text="Iniciando…")
-            reporte: dict = {}
-            n_steps = len(GRAPH_NODE_ORDER)
-
-            with st.status("Ejecutando nodos del grafo…", expanded=True) as status_box:
-                for i, (node_id, label, delta) in enumerate(iter_graph_audit_steps(tmp_sql)):
-                    status_box.write(f"**{node_id}** — {label}")
-                    progress.progress(
-                        min((i + 1) / n_steps, 1.0),
-                        text=f"Paso {i + 1}/{n_steps}: {node_id}",
-                    )
-                    if isinstance(delta, dict) and "report" in delta:
-                        reporte = delta["report"]
-
-            progress.progress(1.0, text="Listo")
-
-            errs = (reporte.get("resumen") or {}).get("errores")
-            if errs:
-                st.error("Errores: " + "; ".join(str(x) for x in errs))
-            else:
-                st.success("Auditoría LangGraph finalizada")
-
-            _render_audit_tables(reporte)
-        except Exception as e:
-            st.error(f"Error: {e}")
-        finally:
-            if tmp_sql and os.path.exists(tmp_sql):
-                os.remove(tmp_sql)

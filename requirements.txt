@@ -8,16 +8,21 @@ langchain-text-splitters>=0.3.8
 langchain-ollama==0.2.0
 langchain-chroma==0.1.4
 
-# PDF y utilidades
-pypdf==4.3.1
+# PDF → Markdown (herramienta auxiliar, no requerido para ingesta principal)
+PyMuPDF>=1.24.0
+
+# Utilidades
 python-dotenv==1.0.1
 reportlab>=4.0.0
 
 # UI
 streamlit==1.38.0
 
-# Tests (desarrollo)
+# Tests
 pytest>=7.4.0
 
-# Orquestación Avanzada (Fase 3)
+# Evaluación RAG (barras de progreso)
+tqdm>=4.66.0
+
+# Orquestación (grafo determinista F4)
 langgraph>=0.2.14,<0.3

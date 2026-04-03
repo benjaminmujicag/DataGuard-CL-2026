@@ -5,6 +5,9 @@ venv/
 # ChromaDB (generado localmente)
 chroma_db/
 
+# Salidas locales (markdown legal, eval RAG, chroma scratch): rutas absolutas y logs
+outputs/
+
 # Python
 __pycache__/
 *.pyc

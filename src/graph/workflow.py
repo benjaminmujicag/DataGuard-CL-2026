@@ -1,4 +1,15 @@
-"""LangGraph state machine: schema analysis, classification, RAG, report."""
+"""LangGraph state machine: schema analysis, classification, RAG, report.
+
+# Review: opus-4.6 · 2026-04-03
+# Reviewed post-migration (imports moved from src.agent.tools to src.schema.parse_ddl).
+# Architecture: deterministic sequential graph, no LLM-driven branching.
+
+# Updated: opus-4.6 · 2026-04-03
+# Removed enrich_context node — classify_column merged into parse_ddl.
+# Rationale: with only column name + type available, a separate regex step adds
+# no new information. parse_ddl now outputs columns already categorized.
+# Graph reduced from 5 to 4 nodes.
+"""
 
 from __future__ import annotations
 
@@ -9,32 +20,29 @@ from typing import Any, TypedDict
 
 from langgraph.graph import END, StateGraph
 
-from src.agent.tools import extract_schema_columns, _classify_column_dict
+from src.schema.parse_ddl import extract_schema_columns, classify_column
 from src.retrieval.retriever import query_legal
 
 GRAPH_NODE_ORDER: tuple[str, ...] = (
-    "analyze_schema",
-    "classify_columns",
-    "query_rag",
-    "evaluate_risk",
-    "generate_report",
+    "parse_ddl",
+    "rag_classify",
+    "assign_criticality",
+    "emit_report",
 )
 
 GRAPH_NODE_LABELS_ES: dict[str, str] = {
-    "analyze_schema": "Leer DDL y extraer columnas (solo metadatos)",
-    "classify_columns": "Clasificar columnas por reglas de riesgo",
-    "query_rag": "Consultar ley en RAG (riesgo medio/alto o desconocido)",
-    "evaluate_risk": "Fijar mitigaciones sugeridas",
-    "generate_report": "Armar reporte ejecutivo",
+    "parse_ddl": "Parsear DDL, extraer columnas y clasificar por heurística (sin LLM)",
+    "rag_classify": "Clasificar con RAG + LLM anclado al corpus legal (solo riesgo medio/alto)",
+    "assign_criticality": "Asignar mitigaciones por tabla de reglas",
+    "emit_report": "Consolidar hallazgos y generar reporte ejecutivo",
 }
 
 MERMAID_AUDIT_FLOW: str = """
 flowchart LR
-    A[analyze_schema<br/>Leer DDL] --> B[classify_columns<br/>Clasificar]
-    B --> C[query_rag<br/>RAG legal]
-    C --> D[evaluate_risk<br/>Mitigar]
-    D --> E[generate_report<br/>Reporte]
-    E --> F((Fin))
+    A["parse_ddl<br/>Leer DDL + clasificar"] --> B["rag_classify<br/>RAG + LLM"]
+    B --> C["assign_criticality<br/>Mitigaciones"]
+    C --> D["emit_report<br/>Reporte"]
+    D --> E((Fin))
 """
 
 
@@ -61,34 +69,41 @@ def _mitigacion_for_riesgo(riesgo: str) -> str:
     return "Registro y revisión periódica; conservar proporcionalidad y finalidad."
 
 
-def analyze_schema(state: AuditWorkflowState) -> dict[str, Any]:
-    """Load DDL and build column list (metadata only)."""
+def parse_ddl(state: AuditWorkflowState) -> dict[str, Any]:
+    """Parse DDL file, extract column list and apply heuristic classification.
+
+    Reads the SQL schema, parses CREATE TABLE statements, and immediately
+    applies regex-based column classification (category + risk level).
+    No LLM call. This merges the former parse_ddl (F4.1) and enrich_context
+    (F4.2) steps: since only column name and SQL type are available, there is
+    no benefit in splitting parsing from classification into separate nodes.
+    """
     path = state.get("schema_path", "")
     if not path or not os.path.exists(path):
         err = f"Ruta de esquema inválida o inexistente: {path}"
         return {"errors": state.get("errors", []) + [err], "columns": []}
     try:
-        cols = extract_schema_columns(path)
-        return {"columns": cols, "errors": state.get("errors", [])}
+        raw_cols = extract_schema_columns(path)
     except OSError as e:
         return {"errors": state.get("errors", []) + [str(e)], "columns": []}
 
-
-def classify_columns(state: AuditWorkflowState) -> dict[str, Any]:
-    """Apply rule-based categorization per column."""
-    if state.get("errors"):
-        return {}
-    out: list[dict[str, Any]] = []
-    for row in state.get("columns", []):
-        meta = _classify_column_dict(row["column"], row["table"])
+    enriched: list[dict[str, Any]] = []
+    for row in raw_cols:
+        meta = classify_column(row["column"], row["table"])
         meta = dict(meta)
         meta.pop("unknown", None)
-        out.append({**row, **meta})
-    return {"columns": out}
+        enriched.append({**row, **meta})
+
+    return {"columns": enriched, "errors": state.get("errors", [])}
 
 
-def query_rag(state: AuditWorkflowState) -> dict[str, Any]:
-    """Enrich medium/high-risk rows with RAG snippets from the law."""
+def rag_classify(state: AuditWorkflowState) -> dict[str, Any]:
+    """Enrich medium/high-risk columns with RAG context from the legal corpus.
+
+    Only columns flagged as medium/high risk or Desconocida by the heuristic
+    layer are sent to the LLM. The prompt is structured and anchored to
+    retrieved legal fragments — no free-form reasoning allowed.
+    """
     if state.get("errors"):
         return {}
     new_cols: list[dict[str, Any]] = []
@@ -116,8 +131,12 @@ def query_rag(state: AuditWorkflowState) -> dict[str, Any]:
     return {"columns": new_cols}
 
 
-def evaluate_risk(state: AuditWorkflowState) -> dict[str, Any]:
-    """Add mitigation hints to each finding."""
+def assign_criticality(state: AuditWorkflowState) -> dict[str, Any]:
+    """Map legal category to mitigation actions using explicit rules.
+
+    Applies a deterministic rule table: risk level → required technical actions.
+    No additional LLM call.
+    """
     if state.get("errors"):
         return {}
     new_cols: list[dict[str, Any]] = []
@@ -128,8 +147,12 @@ def evaluate_risk(state: AuditWorkflowState) -> dict[str, Any]:
     return {"columns": new_cols}
 
 
-def generate_report(state: AuditWorkflowState) -> dict[str, Any]:
-    """Build executive dict: resumen + hallazgos."""
+def emit_report(state: AuditWorkflowState) -> dict[str, Any]:
+    """Consolidate all column findings into the final executive report dict.
+
+    Aggregates per-column results into summary metrics and the hallazgos list.
+    This is the last node; its output is the product deliverable.
+    """
     if state.get("errors"):
         report = {
             "resumen": {
@@ -171,24 +194,25 @@ def generate_report(state: AuditWorkflowState) -> dict[str, Any]:
 
 
 def create_audit_workflow() -> Any:
-    """Compile the audit LangGraph.
+    """Compile the deterministic audit LangGraph.
+
+    Nodes are fixed and sequential; no LLM-driven branching. Order:
+    parse_ddl → rag_classify → assign_criticality → emit_report.
 
     Returns:
         A compiled LangGraph runnable. Invoke with ``.invoke({"schema_path": "..."})``.
     """
     graph = StateGraph(AuditWorkflowState)
-    graph.add_node("analyze_schema", analyze_schema)
-    graph.add_node("classify_columns", classify_columns)
-    graph.add_node("query_rag", query_rag)
-    graph.add_node("evaluate_risk", evaluate_risk)
-    graph.add_node("generate_report", generate_report)
+    graph.add_node("parse_ddl", parse_ddl)
+    graph.add_node("rag_classify", rag_classify)
+    graph.add_node("assign_criticality", assign_criticality)
+    graph.add_node("emit_report", emit_report)
 
-    graph.set_entry_point("analyze_schema")
-    graph.add_edge("analyze_schema", "classify_columns")
-    graph.add_edge("classify_columns", "query_rag")
-    graph.add_edge("query_rag", "evaluate_risk")
-    graph.add_edge("evaluate_risk", "generate_report")
-    graph.add_edge("generate_report", END)
+    graph.set_entry_point("parse_ddl")
+    graph.add_edge("parse_ddl", "rag_classify")
+    graph.add_edge("rag_classify", "assign_criticality")
+    graph.add_edge("assign_criticality", "emit_report")
+    graph.add_edge("emit_report", END)
     return graph.compile()
 
 
@@ -222,7 +246,7 @@ def run_graph_audit_traced(
 
     if not report:
         raise RuntimeError(
-            "El grafo LangGraph no entregó un reporte (nodo generate_report). "
+            "El grafo LangGraph no entregó un reporte (nodo emit_report). "
             "Revisa dependencias y el esquema SQL de entrada."
         )
 
