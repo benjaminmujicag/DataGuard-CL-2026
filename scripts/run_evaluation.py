@@ -56,7 +56,7 @@ def main() -> int:
         default=None,
         dest="corpus_dir",
         help=(
-            "Carpeta con los 3 .md del corpus (ley_21719.md, ley_mixta_sucia.md, ley_19628.md); "
+            "Carpeta con los 2 .md del corpus (ley_mixta.md, ley_21719.md); "
             "por defecto LEGAL_CORPUS_DIR o PDF_DIR o ./data/leyes_base"
         ),
     )
@@ -66,15 +66,15 @@ def main() -> int:
         return print_results_only()
 
     n_golden = len(GOLDEN_DATASET)
-    planned = 20 if args.mode == "quick" else 108
+    planned = 20 if args.mode == "quick" else 144
     if args.max_combos is not None:
         planned = min(planned, max(0, args.max_combos))
 
     print("🔍 CL-DataGuard RAG Evaluator")
     if args.mode == "quick":
-        print("Modo: quick (muestra aleatoria de 20 del grid total de 108)")
+        print("Modo: quick (muestra aleatoria de 20 del grid total de 144)")
     else:
-        print("Modo: full (108 combinaciones)")
+        print("Modo: full (144 combinaciones)")
     if args.max_combos is not None:
         print(f"Límite activo: --max-combos={args.max_combos} → se evaluarán hasta {planned} combinaciones")
     print(f"Combinaciones a ejecutar en esta corrida: {planned}")

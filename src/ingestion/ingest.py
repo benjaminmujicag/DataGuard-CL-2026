@@ -23,11 +23,11 @@ from src.ingestion.legal_corpus import load_legal_corpus, resolve_legal_md_paths
 
 
 def load_legal_docs(corpus_dir: str) -> list[Document]:
-    """Load the fixed legal corpus (3 Markdown files) with 21.719 > mixta > 19.628 priority.
+    """Load the fixed legal corpus (2 Markdown files) with mixta > 21.719 priority.
 
     Args:
-        corpus_dir: Directory that must contain ``ley_21719.md``, ``ley_mixta_sucia.md``
-            and ``ley_19628.md`` (or accepted alias). See ``legal_corpus.py``.
+        corpus_dir: Directory that must contain ``ley_mixta.md`` and
+            ``ley_21719.md``. See ``legal_corpus.py``.
 
     Returns:
         List of LangChain Documents ready for chunking.

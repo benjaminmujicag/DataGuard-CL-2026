@@ -1,12 +1,12 @@
-"""Hyperparameter search for RAG using keyword coverage over a golden dataset.
+"""Hyperparameter search for RAG with composite scoring over a golden dataset.
+
+Scoring is based on three signals:
+1. **Keyword coverage** — fraction of expected legal phrases found in the answer.
+2. **Citation accuracy** — fraction of required article references cited.
+3. **Source grounding** — binary check that at least one legal source is mentioned.
 
 Uses temporary Chroma collections and persist directories; does not modify production
 ``ley_privacidad_cl`` in ``CHROMA_PERSIST_DIR``.
-
-# Review: opus-4.6 · 2026-04-03
-# Solid implementation: checkpoint/resume, timeout guards, CSV incremental logging,
-# production-safe Chroma isolation. Updated import from resolve_legal_pdf_paths to
-# resolve_legal_md_paths for .md corpus migration. Approved.
 """
 
 from __future__ import annotations
@@ -53,11 +53,12 @@ try:
 except ImportError:
     _HAS_TQDM = False
 
-PARAM_GRID: dict[str, list[int | float]] = {
+PARAM_GRID: dict[str, list[int | float | str]] = {
     "chunk_size": [500, 750, 1000, 1500],
     "chunk_overlap": [50, 100, 200],
     "top_k": [2, 3, 5],
-    "temperature": [0.0, 0.1, 0.3],
+    "temperature": [0.0, 0.1],
+    "search_type": ["similarity", "mmr"],  # type: ignore[list-item]
 }
 
 DEFAULT_EVAL_CHROMA_ROOT = "./outputs/rag_eval/.chroma_scratch"
@@ -76,7 +77,7 @@ Reglas de Operación:
 3. Tienes permitido inferir, deducir y sintetizar conceptos si los fragmentos te dan suficiente contexto tácito (por ejemplo, analizar qué es un dato personal en base a cómo la ley norma su uso).
 4. Si los fragmentos de plano no tienen NINGUNA relación con la pregunta o te es imposible deducir una respuesta con ellos, responde cortésmente que la ley no lo menciona explícitamente en el texto recuperado.
 5. Cita siempre el Artículo al que haces referencia (y aclara si pertenece a la Ley 19.628 o a la Ley 21.719 repasando la etiqueta 'Fuente' del fragmento).
-6. REGLA SUPREMA DE CONFLICTO: Si existe alguna discrepancia, choque de definiciones o actualización entre un fragmento etiquetado como fuente Ley 19.628 y un fragmento de la Ley 21.719, darás SIEMPRE PRIORIDAD ABSOLUTA a la información contenida en la Ley 21.719 por ser la ley modificatoria legalmente vigente.
+6. REGLA SUPREMA DE CONFLICTO: Si existe alguna discrepancia o choque entre un fragmento de la Ley 19.628 o la Ley 21.719 y un fragmento de la Ley mixta (fuente primaria del corpus), darás SIEMPRE PRIORIDAD ABSOLUTA a la Ley mixta. Entre Ley 21.719 y Ley 19.628, prima la Ley 21.719 por ser la modificatoria vigente.
 7. PROHIBIDO inventar normativas externas a los fragmentos o alucinar artículos que no estén en el texto provisto.
 
 ---
@@ -115,6 +116,46 @@ def keyword_coverage_score(answer: str, expected_keywords: list[str]) -> float:
     return hits / len(expected_keywords)
 
 
+def citation_accuracy_score(answer: str, required_citations: list[str]) -> float:
+    """Fraction of required article citations present in answer."""
+    if not required_citations:
+        return 1.0  # No citations required = perfect score
+    lower = answer.lower()
+    hits = sum(1 for cite in required_citations if cite.lower() in lower)
+    return hits / len(required_citations)
+
+
+def source_grounding_score(answer: str) -> float:
+    """Binary: does the answer reference at least one known legal source?"""
+    lower = answer.lower()
+    sources = ["ley mixta", "ley 21.719", "ley 21719", "ley 19.628", "ley 19628",
+               "ley_mixta", "ley_21719"]
+    return 1.0 if any(s in lower for s in sources) else 0.0
+
+
+def composite_score(
+    answer: str,
+    expected_keywords: list[str],
+    required_citations: list[str],
+    weight: float = 1.0,
+) -> dict[str, float]:
+    """Compute all sub-scores and a weighted composite.
+
+    Composite = weight * (0.4 * keyword + 0.4 * citation + 0.2 * grounding).
+    """
+    kw = keyword_coverage_score(answer, expected_keywords)
+    ct = citation_accuracy_score(answer, required_citations)
+    gr = source_grounding_score(answer)
+    comp = weight * (0.4 * kw + 0.4 * ct + 0.2 * gr)
+    return {
+        "keyword_score": round(kw, 4),
+        "citation_score": round(ct, 4),
+        "grounding_score": round(gr, 4),
+        "composite_score": round(comp, 4),
+        "weight": weight,
+    }
+
+
 def _format_docs(docs: list[Any]) -> str:
     return format_legal_docs_for_prompt(docs)
 
@@ -136,6 +177,7 @@ def _build_rag_chain(
     embedding_model: str,
     ollama_base_url: str,
     llm_model: str,
+    search_type: str = "similarity",
 ) -> Any:
     embeddings = OllamaEmbeddings(model=embedding_model, base_url=ollama_base_url)
     db = Chroma(
@@ -143,7 +185,11 @@ def _build_rag_chain(
         persist_directory=persist_dir,
         embedding_function=embeddings,
     )
-    retriever = db.as_retriever(search_kwargs={"k": top_k})
+    search_kwargs: dict[str, Any] = {"k": top_k}
+    retriever = db.as_retriever(
+        search_type=search_type,
+        search_kwargs=search_kwargs,
+    )
     llm = OllamaLLM(
         model=llm_model,
         base_url=ollama_base_url,
@@ -159,12 +205,12 @@ def _build_rag_chain(
     return rag_chain
 
 
-def expand_param_grid() -> list[dict[str, int | float]]:
+def expand_param_grid() -> list[dict[str, Any]]:
     """Cartesian product of PARAM_GRID."""
     keys = list(PARAM_GRID.keys())
-    out: list[dict[str, int | float]] = []
+    out: list[dict[str, Any]] = []
 
-    def rec(i: int, cur: dict[str, int | float]) -> None:
+    def rec(i: int, cur: dict[str, Any]) -> None:
         if i == len(keys):
             out.append(dict(cur))
             return
@@ -179,25 +225,26 @@ def expand_param_grid() -> list[dict[str, int | float]]:
 
 
 def sample_combinations(
-    combinations: list[dict[str, int | float]], n: int, seed: int | None
-) -> list[dict[str, int | float]]:
+    combinations: list[dict[str, Any]], n: int, seed: int | None
+) -> list[dict[str, Any]]:
     if n >= len(combinations):
         return list(combinations)
     rng = random.Random(seed)
     return rng.sample(combinations, n)
 
 
-def _combo_tuple(c: dict[str, int | float]) -> tuple[int, int, int, float]:
+def _combo_tuple(c: dict[str, Any]) -> tuple[int, int, int, float, str]:
     return (
         int(c["chunk_size"]),
         int(c["chunk_overlap"]),
         int(c["top_k"]),
         float(c["temperature"]),
+        str(c.get("search_type", "similarity")),
     )
 
 
 def _combinations_match(
-    a: list[dict[str, int | float]], b: list[dict[str, int | float]]
+    a: list[dict[str, Any]], b: list[dict[str, Any]]
 ) -> bool:
     if len(a) != len(b):
         return False
@@ -336,7 +383,7 @@ class RAGEvaluator:
 
     def _evaluate_one_combo(
         self,
-        combo: dict[str, int | float],
+        combo: dict[str, Any],
         combinacion_id: int,
         docs: list[Document],
     ) -> dict[str, Any]:
@@ -344,6 +391,7 @@ class RAGEvaluator:
         chunk_overlap = int(combo["chunk_overlap"])
         top_k = int(combo["top_k"])
         temperature = float(combo["temperature"])
+        search_type = str(combo.get("search_type", "similarity"))
 
         collection_name = f"eval_{chunk_size}_{chunk_overlap}"
         persist_dir = str(
@@ -362,22 +410,28 @@ class RAGEvaluator:
             self._log(f"FAIL ingest combo {combinacion_id}: {e}")
             failed = True
 
+        _fail_row: dict[str, Any] = {
+            "timestamp": row_ts,
+            "chunk_size": chunk_size,
+            "chunk_overlap": chunk_overlap,
+            "top_k": top_k,
+            "temperature": temperature,
+            "search_type": search_type,
+            "score_promedio": -1.0,
+            "score_keyword": -1.0,
+            "score_citation": -1.0,
+            "score_grounding": -1.0,
+            "score_minimo": -1.0,
+            "score_maximo": -1.0,
+            "tiempo_promedio_segundos": -1.0,
+            "mejor_pregunta": "",
+            "peor_pregunta": "",
+            "combinacion_id": combinacion_id,
+        }
+
         if failed:
             self._cleanup_chroma_dir(Path(persist_dir))
-            return {
-                "timestamp": row_ts,
-                "chunk_size": chunk_size,
-                "chunk_overlap": chunk_overlap,
-                "top_k": top_k,
-                "temperature": temperature,
-                "score_promedio": -1.0,
-                "score_minimo": -1.0,
-                "score_maximo": -1.0,
-                "tiempo_promedio_segundos": -1.0,
-                "mejor_pregunta": "",
-                "peor_pregunta": "",
-                "combinacion_id": combinacion_id,
-            }
+            return _fail_row
 
         chain = _build_rag_chain(
             persist_dir=persist_dir,
@@ -387,21 +441,28 @@ class RAGEvaluator:
             embedding_model=self.embedding_model,
             ollama_base_url=self.ollama_base_url,
             llm_model=self.llm_model,
+            search_type=search_type,
         )
 
         per_q_scores: list[tuple[float, str, float]] = []
+        all_kw: list[float] = []
+        all_ct: list[float] = []
+        all_gr: list[float] = []
         times: list[float] = []
         combo_failed = False
         n_q = len(GOLDEN_DATASET)
 
         self._log(
             f"combo {combinacion_id}: inicio evaluación golden ({n_q} preguntas, "
-            f"chunk={chunk_size}/{chunk_overlap}, top_k={top_k}, temp={temperature})"
+            f"chunk={chunk_size}/{chunk_overlap}, top_k={top_k}, temp={temperature}, "
+            f"search={search_type})"
         )
 
         for qi, item in enumerate(GOLDEN_DATASET, start=1):
             question = str(item["question"])
             keywords = list(item["expected_keywords"])  # type: ignore[list-item]
+            citations = list(item.get("required_citations", []))  # type: ignore[list-item]
+            weight = float(item.get("weight", 1.0))  # type: ignore[arg-type]
             t0 = time.perf_counter()
             answer = ""
             q_status = "OK"
@@ -422,35 +483,28 @@ class RAGEvaluator:
                 err_detail = str(e)[:120]
             elapsed = time.perf_counter() - t0
             times.append(elapsed)
-            sc = keyword_coverage_score(answer, keywords)
-            per_q_scores.append((sc, question, elapsed))
-            hits_kw = sum(1 for kw in keywords if kw.lower() in answer.lower())
+
+            scores = composite_score(answer, keywords, citations, weight)
+            per_q_scores.append((scores["composite_score"], question, elapsed))
+            all_kw.append(scores["keyword_score"])
+            all_ct.append(scores["citation_score"])
+            all_gr.append(scores["grounding_score"])
+
             preview = question.replace("\n", " ").strip()[:100]
             tail = f" err={err_detail}" if err_detail else ""
             self._log(
                 f"Q combo={combinacion_id} {qi}/{n_q} status={q_status} "
-                f"kw_hits={hits_kw}/{len(keywords)} score={sc:.4f} time_s={elapsed:.2f} "
-                f"| {preview}{tail}"
+                f"kw={scores['keyword_score']:.2f} cite={scores['citation_score']:.2f} "
+                f"grnd={scores['grounding_score']:.0f} comp={scores['composite_score']:.4f} "
+                f"time_s={elapsed:.2f} | {preview}{tail}"
             )
 
         self._cleanup_chroma_dir(Path(persist_dir))
 
         if combo_failed:
             t_avg = sum(times) / len(times) if times else -1.0
-            return {
-                "timestamp": row_ts,
-                "chunk_size": chunk_size,
-                "chunk_overlap": chunk_overlap,
-                "top_k": top_k,
-                "temperature": temperature,
-                "score_promedio": -1.0,
-                "score_minimo": -1.0,
-                "score_maximo": -1.0,
-                "tiempo_promedio_segundos": round(t_avg, 4) if t_avg >= 0 else -1.0,
-                "mejor_pregunta": "",
-                "peor_pregunta": "",
-                "combinacion_id": combinacion_id,
-            }
+            _fail_row["tiempo_promedio_segundos"] = round(t_avg, 4) if t_avg >= 0 else -1.0
+            return _fail_row
 
         scores_only = [p[0] for p in per_q_scores]
         avg = sum(scores_only) / len(scores_only) if scores_only else 0.0
@@ -467,7 +521,11 @@ class RAGEvaluator:
             "chunk_overlap": chunk_overlap,
             "top_k": top_k,
             "temperature": temperature,
+            "search_type": search_type,
             "score_promedio": round(avg, 4),
+            "score_keyword": round(sum(all_kw) / len(all_kw), 4) if all_kw else 0.0,
+            "score_citation": round(sum(all_ct) / len(all_ct), 4) if all_ct else 0.0,
+            "score_grounding": round(sum(all_gr) / len(all_gr), 4) if all_gr else 0.0,
             "score_minimo": round(mn, 4),
             "score_maximo": round(mx, 4),
             "tiempo_promedio_segundos": round(t_avg, 4),
@@ -483,7 +541,11 @@ class RAGEvaluator:
             "chunk_overlap",
             "top_k",
             "temperature",
+            "search_type",
             "score_promedio",
+            "score_keyword",
+            "score_citation",
+            "score_grounding",
             "score_minimo",
             "score_maximo",
             "tiempo_promedio_segundos",
@@ -535,7 +597,11 @@ class RAGEvaluator:
             f"chunk_overlap: {best['chunk_overlap']}",
             f"top_k: {best['top_k']}",
             f"temperature: {best['temperature']}",
-            f"Score promedio: {best['score_promedio']}",
+            f"search_type: {best.get('search_type', 'similarity')}",
+            f"Score compuesto promedio: {best['score_promedio']}",
+            f"  └─ Keyword: {best.get('score_keyword', 'N/A')}",
+            f"  └─ Citation: {best.get('score_citation', 'N/A')}",
+            f"  └─ Grounding: {best.get('score_grounding', 'N/A')}",
             f"Tiempo promedio de respuesta: {best['tiempo_promedio_segundos']}s",
             f"Evaluado sobre: {len(GOLDEN_DATASET)} preguntas del golden dataset",
             f"Total combinaciones probadas: {n_tried}/{total_full_grid}",
@@ -634,7 +700,11 @@ class RAGEvaluator:
                         "chunk_overlap",
                         "top_k",
                         "temperature",
+                        "search_type",
                         "score_promedio",
+                        "score_keyword",
+                        "score_citation",
+                        "score_grounding",
                         "score_minimo",
                         "score_maximo",
                         "tiempo_promedio_segundos",

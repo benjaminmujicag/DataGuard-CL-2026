@@ -10,11 +10,10 @@ import tempfile
 from datetime import datetime
 
 import streamlit as st
-import streamlit.components.v1 as components
 
 from src.graph.workflow import (
     GRAPH_NODE_ORDER,
-    MERMAID_AUDIT_FLOW,
+    GRAPH_NODE_LABELS_ES,
     iter_graph_audit_steps,
 )
 from src.retrieval.retriever import query_legal
@@ -49,27 +48,6 @@ tab_graph, tab_chat = st.tabs(
     ]
 )
 
-
-def _mermaid_chart(diagram: str, height: int = 360) -> None:
-    """Render Mermaid via CDN (requiere red). El texto es estático del repo (no inyectar SQL)."""
-    body = diagram.strip()
-    components.html(
-        f"""
-<!DOCTYPE html>
-<html><head><meta charset="utf-8"/></head>
-<body style="margin:0;background:transparent;">
-  <script type="module">
-    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
-    mermaid.initialize({{ startOnLoad: false, theme: "dark", securityLevel: "loose" }});
-    const el = document.getElementById("mg");
-    el.removeAttribute("data-processed");
-    await mermaid.run({{ nodes: [el] }});
-  </script>
-  <div id="mg" class="mermaid" style="text-align:center;">{body}</div>
-</body></html>
-        """,
-        height=height,
-    )
 
 
 def _render_audit_tables(reporte: dict) -> None:
@@ -153,11 +131,10 @@ with tab_graph:
         "asignar mitigaciones → generar reporte. Sin agente libre: el orden está fijado en código."
     )
 
-    with st.expander("Diagrama del flujo (Mermaid)"):
-        st.caption("Requiere conexión al CDN de Mermaid en el navegador.")
-        _mermaid_chart(MERMAID_AUDIT_FLOW, height=340)
-        st.markdown("**Código fuente del diagrama**")
-        st.code(MERMAID_AUDIT_FLOW.strip(), language="text")
+    with st.expander("Flujo del grafo de auditoría"):
+        for i, node_id in enumerate(GRAPH_NODE_ORDER, 1):
+            label = GRAPH_NODE_LABELS_ES.get(node_id, node_id)
+            st.markdown(f"**{i}.** `{node_id}` — {label}")
 
     up_g = st.file_uploader("Cargar esquema SQL (.sql)", type=["sql"], key="upload_graph")
 

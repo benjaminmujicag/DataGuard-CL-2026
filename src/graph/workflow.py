@@ -37,13 +37,6 @@ GRAPH_NODE_LABELS_ES: dict[str, str] = {
     "emit_report": "Consolidar hallazgos y generar reporte ejecutivo",
 }
 
-MERMAID_AUDIT_FLOW: str = """
-flowchart LR
-    A["parse_ddl<br/>Leer DDL + clasificar"] --> B["rag_classify<br/>RAG + LLM"]
-    B --> C["assign_criticality<br/>Mitigaciones"]
-    C --> D["emit_report<br/>Reporte"]
-    D --> E((Fin))
-"""
 
 
 class AuditWorkflowState(TypedDict, total=False):
@@ -89,7 +82,12 @@ def parse_ddl(state: AuditWorkflowState) -> dict[str, Any]:
 
     enriched: list[dict[str, Any]] = []
     for row in raw_cols:
-        meta = classify_column(row["column"], row["table"])
+        meta = classify_column(
+            row["column"],
+            row["table"],
+            sql_type=row.get("sql_type", ""),
+            constraints=row.get("constraints", []),
+        )
         meta = dict(meta)
         meta.pop("unknown", None)
         enriched.append({**row, **meta})
@@ -112,11 +110,17 @@ def rag_classify(state: AuditWorkflowState) -> dict[str, Any]:
         riesgo = r.get("riesgo", "Bajo")
         categoria = r.get("categoria", "")
         if riesgo in ("Alto", "Medio") or categoria == "Desconocida":
+            col_name = r.get("column", "columna")
+            sql_type = r.get("sql_type", "")
+            constr_list = r.get("constraints", [])
+            constr_str = ", ".join(constr_list) if constr_list else "sin constraints"
             q = (
-                f"Según la legislación chilena de protección de datos personales (Ley 21.719 "
-                f"y relacionadas), ¿qué obligaciones o restricciones aplican al tratamiento "
-                f"de datos clasificados como: {categoria}? Responde citando artículos si el "
-                f"texto lo permite."
+                f"Columna '{col_name}' de tipo {sql_type} ({constr_str}) "
+                f"en la tabla '{r.get('table', '')}'."
+                f" Clasificada como: {categoria} (riesgo: {riesgo})."
+                f" Según la Ley 21.719 y legislación chilena relacionada, "
+                f"¿qué obligaciones o restricciones específicas aplican al tratamiento "
+                f"de este dato? Cita artículos concretos si el texto lo permite."
             )
             try:
                 r["base_legal"] = query_legal(q)
