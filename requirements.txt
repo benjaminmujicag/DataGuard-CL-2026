@@ -8,12 +8,10 @@ langchain-text-splitters>=0.3.8
 langchain-ollama==0.2.0
 langchain-chroma==0.1.4
 
-# PDF → Markdown (herramienta auxiliar, no requerido para ingesta principal)
-PyMuPDF>=1.24.0
-
 # Utilidades
 python-dotenv==1.0.1
 reportlab>=4.0.0
+sqlglot>=20.0.0   # Parser SQL robusto (reemplaza regex artesanal en parse_ddl)
 
 # UI
 streamlit==1.38.0

@@ -52,7 +52,7 @@ def get_retriever(top_k: int = 3) -> VectorStoreRetriever:
             persist_directory=persist_dir,
             embedding_function=embeddings,
         )
-        return db.as_retriever(search_kwargs={"k": top_k})
+        return db.as_retriever(search_type="similarity", search_kwargs={"k": top_k})
     except Exception as e:
         raise ConnectionError(
             f"Error al conectar con Ollama ({ollama_base_url}). "
@@ -72,7 +72,8 @@ def get_rag_chain() -> RunnablePassthrough:  # type: ignore[override]
     llm_model = os.getenv("OLLAMA_MODEL", "llama3.1")
     ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     try:
-        llm = OllamaLLM(model=llm_model, base_url=ollama_base_url)
+        # Combo #17 optimal temperature: 0.1
+        llm = OllamaLLM(model=llm_model, base_url=ollama_base_url, temperature=0.1)
     except Exception as e:
         raise ConnectionError(
             f"No se pudo conectar con Ollama en {ollama_base_url}. "
@@ -90,8 +91,8 @@ Reglas de Operación:
 2. Basate ÚNICAMENTE en el contenido de los "Fragmentos Relevantes" para fundamentar tu respuesta.
 3. Tienes permitido inferir, deducir y sintetizar conceptos si los fragmentos te dan suficiente contexto tácito (por ejemplo, analizar qué es un dato personal en base a cómo la ley norma su uso).
 4. Si los fragmentos de plano no tienen NINGUNA relación con la pregunta o te es imposible deducir una respuesta con ellos, responde cortésmente que la ley no lo menciona explícitamente en el texto recuperado.
-5. Cita siempre el Artículo al que haces referencia (y aclara si pertenece a la Ley 19.628 o a la Ley 21.719 repasando la etiqueta 'Fuente' del fragmento).
-6. REGLA SUPREMA DE CONFLICTO: Si existe alguna discrepancia, choque de definiciones o actualización entre un fragmento etiquetado como fuente Ley 19.628 y un fragmento de la Ley 21.719, darás SIEMPRE PRIORIDAD ABSOLUTA a la información contenida en la Ley 21.719 por ser la ley modificatoria legalmente vigente.
+5. Cita siempre el Artículo al que haces referencia (y aclara si pertenece a la Ley mixta, Ley 19.628 o a la Ley 21.719 repasando la etiqueta 'Fuente' del fragmento).
+6. REGLA SUPREMA DE CONFLICTO: Si existe alguna discrepancia o choque entre fragmentos, darás PRIORIDAD ABSOLUTA a la Ley mixta (fuente primaria). Si el conflicto es entre Ley 21.719 y Ley 19.628, prima la Ley 21.719.
 7. PROHIBIDO inventar normativas externas a los fragmentos o alucinar artículos que no estén en el texto provisto.
 
 ---

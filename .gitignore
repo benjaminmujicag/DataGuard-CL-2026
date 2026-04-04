@@ -4,6 +4,7 @@ venv/
 
 # ChromaDB (generado localmente)
 chroma_db/
+chroma_db_v2/
 
 # Salidas locales (markdown legal, eval RAG, chroma scratch): rutas absolutas y logs
 outputs/

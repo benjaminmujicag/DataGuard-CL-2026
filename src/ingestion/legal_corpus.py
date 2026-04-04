@@ -1,10 +1,9 @@
-"""Corpus legal fijo: tres Markdowns en ``LEGAL_CORPUS_DIR`` con prioridad explícita para RAG.
+"""Corpus legal fijo: dos Markdowns en ``LEGAL_CORPUS_DIR`` con prioridad explícita para RAG.
 
 Orden de autoridad en recuperación y en el prompt (menor ``legal_priority_rank`` = mayor prioridad):
 
-1. Ley 21.719 — ``ley_21719.md``
-2. Ley mixta / transición — ``ley_mixta_sucia.md``
-3. Ley 19.628 — ``ley_19628.md`` (y alias de nombre aceptados)
+1. Ley mixta / transición — ``ley_mixta.md`` (fuente primaria)
+2. Ley 21.719 — ``ley_21719.md`` (fuente secundaria)
 
 Solo se indexan estos archivos (no todo el directorio), para evitar ruido de archivos extra.
 """
@@ -18,18 +17,8 @@ from typing import Any, Sequence
 from langchain_core.documents import Document
 
 LEGAL_CORPUS_SLOTS: list[tuple[int, str, tuple[str, ...]]] = [
-    (0, "Ley 21.719", ("ley_21719.md",)),
-    (1, "Ley mixta / transición", ("ley_mixta_sucia.md",)),
-    (
-        2,
-        "Ley 19.628",
-        (
-            "ley_19628.md",
-            "ley_19.628.md",
-            "ley_19_628.md",
-            "ley19628.md",
-        ),
-    ),
+    (0, "Ley mixta / transición", ("ley_mixta.md", "ley_mixta_sucia.md")),
+    (1, "Ley 21.719", ("ley_21719.md",)),
 ]
 
 
@@ -102,7 +91,7 @@ def resolve_legal_md_paths(md_dir: str | Path) -> list[tuple[Path, str, int]]:
 
 
 def load_legal_corpus(md_dir: str | Path | None = None) -> list[Document]:
-    """Load the three Markdown files as LangChain Documents with priority metadata.
+    """Load the two Markdown files as LangChain Documents with priority metadata.
 
     Each file is loaded as a single Document (full text). The YAML frontmatter
     is stripped so that only legal content is indexed.
@@ -112,7 +101,7 @@ def load_legal_corpus(md_dir: str | Path | None = None) -> list[Document]:
             ``LEGAL_CORPUS_DIR`` then ``./data/leyes_base``.
 
     Returns:
-        Documents in priority order: 21.719 first, then mixta, then 19.628.
+        Documents in priority order: ley_mixta first (rank 0), then ley_21719 (rank 1).
     """
     if md_dir is None:
         md_dir = os.getenv("LEGAL_CORPUS_DIR", os.getenv("PDF_DIR", "./data/leyes_base"))

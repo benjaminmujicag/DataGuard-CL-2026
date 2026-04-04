@@ -1,19 +1,21 @@
-"""Golden dataset for RAG evaluation — audit-oriented questions.
+"""Golden dataset for RAG evaluation — audit-oriented questions with precise keywords.
 
-# Review: opus-4.6 · 2026-04-03 (full replacement)
-# Previous dataset tested general legal knowledge (ARCO rights, deadlines, sanctions).
-# These 20 questions replicate the actual query format used by rag_classify in production,
-# covering the 8 column categories from classify_column + cross-cutting audit scenarios.
-# Keywords are grounded in ley_21719.md and ley_mixta.md (leyes_base corpus).
+# Revision: 2026-04-03
+# Improved: keywords now include article-specific terms and legal phrases that
+# discriminate real answers from generic LLM output. Each entry has a ``weight``
+# (1.0 = standard, 2.0 = critical for audit) so the evaluator can compute
+# weighted scores.
 
 Each entry has:
   - question: what rag_classify or an auditor would actually ask
-  - expected_keywords: terms that MUST appear in a correct answer
+  - expected_keywords: terms that MUST appear in a correct answer (specific to articles)
+  - required_citations: article references the answer MUST cite (e.g. "artículo 16 bis")
+  - weight: importance multiplier for scoring (1.0 = normal, 2.0 = critical)
 """
 
 from __future__ import annotations
 
-GOLDEN_DATASET: list[dict[str, str | list[str]]] = [
+GOLDEN_DATASET: list[dict[str, str | list[str] | float]] = [
     # ---- Per-category queries (replicating rag_classify prompt format) ----
     {
         "question": (
@@ -22,12 +24,14 @@ GOLDEN_DATASET: list[dict[str, str | list[str]]] = [
             "de datos clasificados como: Datos identificadores?"
         ),
         "expected_keywords": [
-            "responsable",
-            "consentimiento",
-            "identificación",
-            "tratamiento",
-            "titular",
+            "dato personal",
+            "responsable de datos",
+            "base de licitud",
+            "consentimiento del titular",
+            "deber de secreto",
         ],
+        "required_citations": ["artículo 3"],
+        "weight": 1.0,
     },
     {
         "question": (
@@ -36,12 +40,14 @@ GOLDEN_DATASET: list[dict[str, str | list[str]]] = [
             "de datos clasificados como: Datos de salud (Sensibles)?"
         ),
         "expected_keywords": [
-            "sensibles",
-            "salud",
-            "consentimiento",
-            "prohibición",
-            "expreso",
+            "datos sensibles",
+            "dato personal sensible",
+            "consentimiento expreso",
+            "prohibición general",
+            "salud del titular",
         ],
+        "required_citations": ["artículo 16 bis"],
+        "weight": 2.0,
     },
     {
         "question": (
@@ -50,12 +56,14 @@ GOLDEN_DATASET: list[dict[str, str | list[str]]] = [
             "de datos clasificados como: Datos financieros?"
         ),
         "expected_keywords": [
-            "financiero",
-            "seguridad",
+            "dato personal",
+            "principio de finalidad",
+            "medidas de seguridad",
             "proporcionalidad",
-            "finalidad",
-            "responsable",
+            "deber de confidencialidad",
         ],
+        "required_citations": ["artículo 3"],
+        "weight": 1.5,
     },
     {
         "question": (
@@ -64,12 +72,14 @@ GOLDEN_DATASET: list[dict[str, str | list[str]]] = [
             "de datos clasificados como: Datos de contacto?"
         ),
         "expected_keywords": [
+            "base de licitud",
+            "principio de finalidad",
             "consentimiento",
-            "finalidad",
-            "comunicación",
-            "licitud",
-            "titular",
+            "comunicación de datos",
+            "derecho de oposición",
         ],
+        "required_citations": ["artículo 12"],
+        "weight": 1.0,
     },
     {
         "question": (
@@ -78,12 +88,14 @@ GOLDEN_DATASET: list[dict[str, str | list[str]]] = [
             "de datos clasificados como: Datos biométricos?"
         ),
         "expected_keywords": [
-            "biométrico",
-            "sensible",
-            "prohibición",
-            "consentimiento",
-            "excepciones",
+            "dato biométrico",
+            "dato personal sensible",
+            "prohibición general de tratamiento",
+            "consentimiento expreso",
+            "excepciones legales",
         ],
+        "required_citations": ["artículo 16 bis"],
+        "weight": 2.0,
     },
     {
         "question": (
@@ -92,12 +104,14 @@ GOLDEN_DATASET: list[dict[str, str | list[str]]] = [
             "de datos clasificados como: Potencial dato de menores?"
         ),
         "expected_keywords": [
-            "menores",
-            "interés superior",
-            "representante",
+            "niño",
+            "interés superior del niño",
+            "representante legal",
             "consentimiento",
-            "edad",
+            "menor de 14",
         ],
+        "required_citations": ["artículo 16 quinquies"],
+        "weight": 2.0,
     },
     {
         "question": (
@@ -106,12 +120,14 @@ GOLDEN_DATASET: list[dict[str, str | list[str]]] = [
             "de datos clasificados como: Datos de geolocalización?"
         ),
         "expected_keywords": [
-            "localización",
-            "proporcionalidad",
-            "finalidad",
-            "minimización",
-            "consentimiento",
+            "dato personal",
+            "principio de proporcionalidad",
+            "finalidad específica",
+            "minimización de datos",
+            "consentimiento del titular",
         ],
+        "required_citations": ["artículo 3"],
+        "weight": 1.0,
     },
     {
         "question": (
@@ -120,12 +136,14 @@ GOLDEN_DATASET: list[dict[str, str | list[str]]] = [
             "de datos clasificados como: Logs y auditoría?"
         ),
         "expected_keywords": [
-            "acceso",
-            "registro",
-            "seguridad",
+            "registro de acceso",
+            "deber de seguridad",
             "proporcionalidad",
-            "responsable",
+            "responsable de datos",
+            "medidas técnicas",
         ],
+        "required_citations": ["artículo 14 quinquies"],
+        "weight": 1.0,
     },
     # ---- Audit-specific questions a CISO would ask ----
     {
@@ -134,12 +152,14 @@ GOLDEN_DATASET: list[dict[str, str | list[str]]] = [
             "datos personales?"
         ),
         "expected_keywords": [
-            "seguridad",
-            "medidas",
-            "acceso",
-            "integridad",
+            "medidas de seguridad",
+            "deber de seguridad",
             "confidencialidad",
+            "integridad",
+            "disponibilidad",
         ],
+        "required_citations": ["artículo 14 quinquies"],
+        "weight": 2.0,
     },
     {
         "question": (
@@ -147,12 +167,14 @@ GOLDEN_DATASET: list[dict[str, str | list[str]]] = [
             "base de datos?"
         ),
         "expected_keywords": [
-            "responsable",
-            "obligaciones",
-            "tratamiento",
-            "seguridad",
-            "titular",
+            "responsable de datos",
+            "determina los fines",
+            "deber de seguridad",
+            "registro de actividades",
+            "delegado de protección",
         ],
+        "required_citations": ["artículo 14"],
+        "weight": 1.5,
     },
     {
         "question": (
@@ -161,11 +183,13 @@ GOLDEN_DATASET: list[dict[str, str | list[str]]] = [
         ),
         "expected_keywords": [
             "evaluación de impacto",
-            "riesgo",
+            "alto riesgo",
             "datos sensibles",
-            "responsable",
-            "tratamiento",
+            "tratamiento a gran escala",
+            "medidas de mitigación",
         ],
+        "required_citations": ["artículo 14 septies"],
+        "weight": 2.0,
     },
     {
         "question": (
@@ -173,12 +197,14 @@ GOLDEN_DATASET: list[dict[str, str | list[str]]] = [
             "según la legislación chilena?"
         ),
         "expected_keywords": [
-            "finalidad",
+            "principio de finalidad",
             "proporcionalidad",
-            "licitud",
-            "minimización",
-            "exactitud",
+            "licitud del tratamiento",
+            "calidad de los datos",
+            "principio de seguridad",
         ],
+        "required_citations": ["artículo 3"],
+        "weight": 1.5,
     },
     {
         "question": (
@@ -186,12 +212,14 @@ GOLDEN_DATASET: list[dict[str, str | list[str]]] = [
             "números de cédula de identidad o RUT?"
         ),
         "expected_keywords": [
-            "identificador",
-            "responsable",
-            "tratamiento",
-            "consentimiento",
-            "seguridad",
+            "dato personal",
+            "identificador único",
+            "responsable de datos",
+            "base de licitud",
+            "deber de seguridad",
         ],
+        "required_citations": ["artículo 3", "artículo 14 quinquies"],
+        "weight": 1.5,
     },
     {
         "question": (
@@ -199,12 +227,14 @@ GOLDEN_DATASET: list[dict[str, str | list[str]]] = [
             "en una base de datos según la Ley 21.719?"
         ),
         "expected_keywords": [
-            "sensibles",
-            "prohibición",
-            "expreso",
-            "consentimiento",
-            "excepciones",
+            "datos sensibles",
+            "prohibición general",
+            "consentimiento expreso",
+            "excepciones taxativas",
+            "categorías especiales",
         ],
+        "required_citations": ["artículo 16 bis"],
+        "weight": 2.0,
     },
     {
         "question": (
@@ -212,12 +242,14 @@ GOLDEN_DATASET: list[dict[str, str | list[str]]] = [
             "informáticos y bases de datos?"
         ),
         "expected_keywords": [
-            "salud",
-            "almacenamiento",
-            "seguridad",
-            "sensibles",
-            "responsable",
+            "datos relativos a la salud",
+            "dato sensible",
+            "consentimiento expreso",
+            "profesional de la salud",
+            "medidas de seguridad",
         ],
+        "required_citations": ["artículo 16 bis"],
+        "weight": 2.0,
     },
     {
         "question": (
@@ -226,11 +258,13 @@ GOLDEN_DATASET: list[dict[str, str | list[str]]] = [
         ),
         "expected_keywords": [
             "mandatario",
-            "responsable",
-            "instrucciones",
-            "seguridad",
-            "contrato",
+            "encargado de tratamiento",
+            "instrucciones del responsable",
+            "contrato de mandato",
+            "deber de confidencialidad",
         ],
+        "required_citations": ["artículo 15 bis"],
+        "weight": 1.5,
     },
     {
         "question": (
@@ -238,12 +272,14 @@ GOLDEN_DATASET: list[dict[str, str | list[str]]] = [
             "consentimiento del titular?"
         ),
         "expected_keywords": [
-            "consentimiento",
+            "sin consentimiento",
             "obligación legal",
-            "contrato",
+            "ejecución de contrato",
             "interés legítimo",
-            "excepción",
+            "fuentes de acceso público",
         ],
+        "required_citations": ["artículo 13"],
+        "weight": 1.5,
     },
     {
         "question": (
@@ -251,12 +287,14 @@ GOLDEN_DATASET: list[dict[str, str | list[str]]] = [
             "almacenados en una base de datos?"
         ),
         "expected_keywords": [
-            "acceso",
+            "derecho de acceso",
             "rectificación",
-            "cancelación",
+            "supresión",
             "portabilidad",
-            "titular",
+            "derecho de oposición",
         ],
+        "required_citations": ["artículo 5", "artículo 6"],
+        "weight": 1.5,
     },
     {
         "question": (
@@ -264,12 +302,14 @@ GOLDEN_DATASET: list[dict[str, str | list[str]]] = [
             "menores de 14 años?"
         ),
         "expected_keywords": [
-            "menores",
+            "niño, niña o adolescente",
             "representante legal",
-            "consentimiento",
-            "interés superior",
-            "edad",
+            "consentimiento del representante",
+            "interés superior del niño",
+            "menor de 14 años",
         ],
+        "required_citations": ["artículo 16 quinquies"],
+        "weight": 2.0,
     },
     {
         "question": (
@@ -277,11 +317,13 @@ GOLDEN_DATASET: list[dict[str, str | list[str]]] = [
             "se consideran graves y deben reportarse en una auditoría?"
         ),
         "expected_keywords": [
-            "infracción",
-            "grave",
-            "sanción",
-            "agencia",
-            "tratamiento",
+            "infracción grave",
+            "infracción gravísima",
+            "multa",
+            "Agencia de Protección de Datos",
+            "vulneración de seguridad",
         ],
+        "required_citations": ["artículo 34 bis", "artículo 34 ter"],
+        "weight": 2.0,
     },
 ]
